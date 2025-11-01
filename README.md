@@ -16,14 +16,14 @@ An all-in-one CLI tool to create and develop GNOME Extensions with TypeScript su
 ### Global Installation
 
 ```bash
-bun install -g gnext
+bun install -g @dagimg-dot/gnext
 ```
 
 ### For Extension Development
 
 ```bash
 # Install as a dev dependency in your extension project
-bun add -D gnext
+bun add -D @dagimg-dot/gnext
 ```
 
 ## Usage
@@ -31,7 +31,7 @@ bun add -D gnext
 ### Create a New Extension
 
 ```bash
-bun create gnext@latest my-extension
+bun create @dagimg-dot/gnext@latest my-extension
 cd my-extension
 bun install
 ```
