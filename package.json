@@ -21,10 +21,20 @@
     "gnome-shell",
     "extension",
     "cli",
-    "development"
+    "development",
+    "typescript",
+    "linux"
   ],
-  "author": "",
+  "author": "GN'EXT Contributors",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dagimg-dot/gnext.git"
+  },
+  "homepage": "https://github.com/dagimg-dot/gnext#readme",
+  "bugs": {
+    "url": "https://github.com/dagimg-dot/gnext/issues"
+  },
   "dependencies": {
     "chalk": "^5.6.2",
     "commander": "^14.0.2",

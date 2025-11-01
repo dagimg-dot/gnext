@@ -29,31 +29,15 @@ export async function setupCommand(vmTarget: string): Promise<void> {
 		logger.info(`Host specification: ${hostSpec}`);
 
 		// Generate dev script
-		const scriptsDir = path.join(cwd, "scripts");
-		await fs.ensureDir(scriptsDir);
+		const gnextDir = path.join(cwd, ".gnext");
+		await fs.ensureDir(gnextDir);
 
 		const devScriptName = `dev-${projectName}.sh`;
-		const devScriptPath = path.join(scriptsDir, devScriptName);
+		const devScriptPath = path.join(gnextDir, devScriptName);
 
 		logger.info(`Generating ${devScriptName}...`);
 
-		const devScriptContent = `#!/bin/bash
-set -euo pipefail
-
-MOUNT_POINT="/mnt/host/${projectName}"
-HOST_SPEC="${hostSpec}"
-
-mkdir -p "$MOUNT_POINT"
-
-if ! mountpoint -q "$MOUNT_POINT"; then
-\tsshfs "$HOST_SPEC" "$MOUNT_POINT" -o follow_symlinks
-fi
-
-cd "$MOUNT_POINT" || { echo "Failed to change directory to $MOUNT_POINT"; exit 1; }
-
-# Replace the current process with an interactive shell so the CWD persists
-exec "\${SHELL:-/bin/bash}" -i
-`;
+		const devScriptContent = generateDevScriptContent(projectName, hostSpec);
 
 		await fs.writeFile(devScriptPath, devScriptContent, { mode: 0o755 });
 		logger.success(`Generated ${devScriptName}`);
@@ -78,19 +62,7 @@ exec "\${SHELL:-/bin/bash}" -i
 			"Setting up VM (installing sshfs, creating mountpoint)...",
 		);
 
-		const setupScript = `
-set -e;
-if ! command -v sshfs >/dev/null 2>&1; then
-  if command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y fuse-sshfs >/dev/null;
-  elif command -v apt >/dev/null 2>&1; then
-    sudo apt update >/dev/null && sudo apt install -y sshfs >/dev/null;
-  fi;
-fi;
-mkdir -p /mnt/host;
-chmod +x ~/${devScriptName};
-echo 'Setup complete on VM.'
-`;
+		const setupScript = generateVMSetupScript(devScriptName);
 
 		const sshResult = await shell.exec("ssh", ["-t", vmTarget, setupScript]);
 
@@ -152,4 +124,41 @@ async function getMachineIp(): Promise<string> {
 	}
 
 	throw new Error("Could not detect machine IP address");
+}
+
+function generateDevScriptContent(
+	projectName: string,
+	hostSpec: string,
+): string {
+	return `#!/bin/bash
+set -euo pipefail
+
+MOUNT_POINT="/mnt/host/${projectName}"
+HOST_SPEC="${hostSpec}"
+
+mkdir -p "$MOUNT_POINT"
+
+if ! mountpoint -q "$MOUNT_POINT"; then
+	sshfs "$HOST_SPEC" "$MOUNT_POINT" -o follow_symlinks
+fi
+
+cd "$MOUNT_POINT" || { echo "Failed to change directory to $MOUNT_POINT"; exit 1; }
+
+# Replace the current process with an interactive shell so the CWD persists
+exec "\${SHELL:-/bin/bash}" -i
+`;
+}
+
+function generateVMSetupScript(devScriptName: string): string {
+	return `set -e;
+if ! command -v sshfs >/dev/null 2>&1; then
+  if command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y fuse-sshfs >/dev/null;
+  elif command -v apt >/dev/null 2>&1; then
+    sudo apt update >/dev/null && sudo apt install -y sshfs >/dev/null;
+  fi;
+fi;
+mkdir -p /mnt/host;
+chmod +x ~/${devScriptName};
+echo 'Setup complete on VM.'`;
 }
