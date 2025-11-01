@@ -1,0 +1,25 @@
+node_modules/
+
+dist/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Test files
+*.test.ts
+
+# Temporary files
+tmp/
+temp/
+
+scripts/
