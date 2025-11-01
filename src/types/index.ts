@@ -18,6 +18,7 @@ export interface PackageJson {
 export interface BuildOptions {
 	install?: boolean;
 	unsafeReload?: boolean;
+	useEsbuild?: boolean;
 }
 
 export interface PublishOptions {

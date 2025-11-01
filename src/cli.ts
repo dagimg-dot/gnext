@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { buildCommand } from "./commands/build.js";
+import { bumpCommand } from "./commands/bump.js";
 import { createCommand } from "./commands/create.js";
 import { devCommand } from "./commands/dev.js";
 import { logsCommand } from "./commands/logs.js";
@@ -41,10 +42,15 @@ program
 		"-r, --unsafe-reload",
 		"Build, install, and reload GNOME Shell (X11 only, requires unsafe mode)",
 	)
+	.option(
+		"--use-esbuild",
+		"Use esbuild for compilation (produces bundled code - not recommended for GNOME store)",
+	)
 	.action(async (options) => {
 		await buildCommand({
 			install: options.install,
 			unsafeReload: options.unsafeReload,
+			useEsbuild: options.useEsbuild,
 		});
 	});
 
@@ -81,6 +87,15 @@ program
 			username: options.username,
 			password: options.password,
 		});
+	});
+
+// Bump command
+program
+	.command("bump <version>")
+	.description("Bump extension version")
+	.option("-r, --release", "Create git release (commit, push, tag)")
+	.action(async (version: string, options) => {
+		await bumpCommand(version, { release: options.release });
 	});
 
 // Setup command

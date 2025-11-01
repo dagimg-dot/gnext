@@ -25,7 +25,7 @@ export async function buildCommand(options: BuildOptions = {}): Promise<void> {
 
 		// Compile TypeScript if needed
 		if (usesTS) {
-			await compileTypeScript(cwd, jsDir);
+			await compileTypeScript(cwd, jsDir, options);
 		}
 
 		// Compile translations if they exist
@@ -76,16 +76,12 @@ export async function buildCommand(options: BuildOptions = {}): Promise<void> {
 	}
 }
 
-async function compileTypeScript(cwd: string, outDir: string): Promise<void> {
+async function compileTypeScript(
+	cwd: string,
+	outDir: string,
+	options: BuildOptions,
+): Promise<void> {
 	const spinner = logger.startSpinner("Compiling TypeScript files...");
-
-	// Check if bun is installed
-	if (!(await shell.commandExists("bun"))) {
-		spinner.fail(
-			"Bun is not installed. Please install Bun to compile TypeScript.",
-		);
-		throw new Error("Bun not found");
-	}
 
 	// Remove old dist directory
 	const distPath = path.join(cwd, outDir);
@@ -99,14 +95,24 @@ async function compileTypeScript(cwd: string, outDir: string): Promise<void> {
 		await shell.execOrThrow("bun", ["install"], { cwd });
 	}
 
-	// Check if custom esbuild script exists
-	const esbuildScript = path.join(cwd, "scripts", "esbuild.js");
-	if (await project.fileExists(esbuildScript)) {
-		spinner.text = "Compiling with esbuild...";
-		await shell.execOrThrow("bun", ["./scripts/esbuild.js"], { cwd });
+	// Compile TypeScript - prefer tsc for GNOME extension store compatibility
+	if (options.useEsbuild) {
+		// Use esbuild for development/bundling (if explicitly requested)
+		const esbuildScript = path.join(cwd, "scripts", "esbuild.js");
+		if (await project.fileExists(esbuildScript)) {
+			spinner.text = "Compiling with esbuild (bundled)...";
+			await runWithFallback(["bun", "./scripts/esbuild.js"], cwd);
+		} else {
+			logger.warning(
+				"esbuild requested but scripts/esbuild.js not found. Using tsc instead.",
+			);
+			spinner.text = "Compiling with tsc...";
+			await runTscWithFallback(cwd);
+		}
 	} else {
-		spinner.text = "Compiling with tsc...";
-		await shell.execOrThrow("bunx", ["tsc"], { cwd });
+		// Use tsc for GNOME extension compatibility (readable JS, 1:1 mapping)
+		spinner.text = "Compiling with tsc (readable JS for GNOME)...";
+		await runTscWithFallback(cwd);
 	}
 
 	// Copy non-TypeScript files from src to dist
@@ -288,4 +294,49 @@ async function createZipPackage(
 	}
 
 	spinner.succeed("Extension package created");
+}
+
+/**
+ * Run a command with fallback options (bun -> npx -> node)
+ */
+async function runWithFallback(args: string[], cwd: string): Promise<void> {
+	const commands = [
+		{ cmd: "bun", args },
+		{ cmd: "npx", args },
+		{ cmd: "node", args: [`./node_modules/.bin/${args[0]}`, ...args.slice(1)] },
+	];
+
+	for (const { cmd, args: cmdArgs } of commands) {
+		try {
+			await shell.execOrThrow(cmd, cmdArgs as string[], { cwd });
+			return;
+		} catch {}
+	}
+
+	throw new Error(
+		`Failed to run: ${args.join(" ")} - tried bun, npx, and node`,
+	);
+}
+
+/**
+ * Run TypeScript compiler with fallback options
+ */
+async function runTscWithFallback(cwd: string): Promise<void> {
+	const tscCommands = [
+		["bunx", ["tsc"]],
+		["npx", ["tsc"]],
+		["bunx", ["typescript", "tsc"]],
+		["npx", ["typescript", "tsc"]],
+	];
+
+	for (const [cmd, args] of tscCommands) {
+		try {
+			await shell.execOrThrow(cmd as string, args as string[], { cwd });
+			return;
+		} catch {}
+	}
+
+	throw new Error(
+		"Failed to run TypeScript compiler - tried bunx, npx with various options",
+	);
 }
