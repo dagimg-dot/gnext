@@ -10,15 +10,26 @@ export async function buildCommand(options: BuildOptions = {}): Promise<void> {
 	const cwd = project.getCwd();
 
 	try {
-		// Read metadata and package.json
-		const metadata = await project.readMetadata(cwd);
-		const packageJson = await project.readPackageJson(cwd);
+		// Read metadata and package.json once
+		const [metadata, packageJson] = await Promise.all([
+			project.readMetadata(cwd),
+			project.readPackageJson(cwd),
+		]);
 
 		const uuid = metadata.uuid;
 		const version = packageJson.version;
 		const buildDir = path.join(cwd, "build");
-		const usesTS = await project.usesTypeScript(cwd);
-		const jsDir = await project.getJsDir(cwd);
+
+		// Check file existence once for all needed directories/files
+		const [usesTS, hasTranslations, hasResources, hasSchemas] =
+			await Promise.all([
+				project.usesTypeScript(cwd),
+				project.hasTranslations(cwd),
+				project.hasResources(cwd),
+				project.hasSchemas(cwd),
+			]);
+
+		const jsDir = usesTS ? "dist" : "src";
 
 		logger.info(`Building extension: ${metadata.name} (${uuid})`);
 		logger.info(`Version: ${version}`);
@@ -29,18 +40,18 @@ export async function buildCommand(options: BuildOptions = {}): Promise<void> {
 		}
 
 		// Compile translations if they exist
-		if (await project.hasTranslations(cwd)) {
+		if (hasTranslations) {
 			await compileTranslations(cwd, jsDir, uuid);
 		}
 
 		// Compile resources if they exist
 		let resourceTarget: string | null = null;
-		if (await project.hasResources(cwd)) {
+		if (hasResources) {
 			resourceTarget = await compileResources(cwd, buildDir, uuid);
 		}
 
 		// Compile schemas if they exist
-		if (await project.hasSchemas(cwd)) {
+		if (hasSchemas) {
 			await compileSchemas(cwd, jsDir);
 		}
 
@@ -101,7 +112,7 @@ async function compileTypeScript(
 		const esbuildScript = path.join(cwd, "scripts", "esbuild.js");
 		if (await project.fileExists(esbuildScript)) {
 			spinner.text = "Compiling with esbuild (bundled)...";
-			await runWithFallback(["bun", "./scripts/esbuild.js"], cwd);
+			await shell.execOrThrow("bun", ["./scripts/esbuild.js"], { cwd });
 		} else {
 			logger.warning(
 				"esbuild requested but scripts/esbuild.js not found. Using tsc instead.",
@@ -278,7 +289,8 @@ async function createZipPackage(
 	}
 
 	// Create zip using the zip command
-	await shell.execOrThrow("zip", ["-qr", `../${path.basename(zipPath)}`, "."], {
+	const relativeZipPath = path.relative(jsDirPath, zipPath);
+	await shell.execOrThrow("zip", ["-qr", relativeZipPath, "."], {
 		cwd: jsDirPath,
 	});
 
@@ -297,46 +309,20 @@ async function createZipPackage(
 }
 
 /**
- * Run a command with fallback options (bun -> npx -> node)
- */
-async function runWithFallback(args: string[], cwd: string): Promise<void> {
-	const commands = [
-		{ cmd: "bun", args },
-		{ cmd: "npx", args },
-		{ cmd: "node", args: [`./node_modules/.bin/${args[0]}`, ...args.slice(1)] },
-	];
-
-	for (const { cmd, args: cmdArgs } of commands) {
-		try {
-			await shell.execOrThrow(cmd, cmdArgs as string[], { cwd });
-			return;
-		} catch {}
-	}
-
-	throw new Error(
-		`Failed to run: ${args.join(" ")} - tried bun, npx, and node`,
-	);
-}
-
-/**
  * Run TypeScript compiler with fallback options
  */
 async function runTscWithFallback(cwd: string): Promise<void> {
-	const tscCommands = [
-		["bunx", ["tsc"]],
-		["npx", ["tsc"]],
-		["bunx", ["typescript", "tsc"]],
-		["npx", ["typescript", "tsc"]],
-	];
+	// Try bunx first (most common for bun users)
+	try {
+		await shell.execOrThrow("bunx", ["tsc"], { cwd });
+		return;
+	} catch {}
 
-	for (const [cmd, args] of tscCommands) {
-		try {
-			await shell.execOrThrow(cmd as string, args as string[], { cwd });
-			return;
-		} catch {}
-	}
+	// Fallback to npx
+	try {
+		await shell.execOrThrow("npx", ["tsc"], { cwd });
+		return;
+	} catch {}
 
-	throw new Error(
-		"Failed to run TypeScript compiler - tried bunx, npx with various options",
-	);
+	throw new Error("Failed to run TypeScript compiler - tried bunx and npx");
 }

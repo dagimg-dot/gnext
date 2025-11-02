@@ -1,4 +1,5 @@
 import path from "node:path";
+import { execa } from "execa";
 import fs from "fs-extra";
 import { logger } from "../utils/logger.js";
 import { project } from "../utils/project.js";
@@ -64,10 +65,15 @@ export async function setupCommand(vmTarget: string): Promise<void> {
 
 		const setupScript = generateVMSetupScript(devScriptName);
 
-		const sshResult = await shell.exec("ssh", ["-t", vmTarget, setupScript]);
-
-		if (sshResult.exitCode !== 0) {
-			setupSpinner.fail(`Failed to setup VM: ${sshResult.stderr}`);
+		// Execute interactive SSH command
+		try {
+			await execa("ssh", ["-t", vmTarget, setupScript], {
+				stdin: "inherit",
+				stdout: "inherit",
+				stderr: "inherit",
+			});
+		} catch (error) {
+			setupSpinner.fail(`Failed to setup VM: ${error}`);
 			process.exit(1);
 		}
 
@@ -151,14 +157,25 @@ exec "\${SHELL:-/bin/bash}" -i
 
 function generateVMSetupScript(devScriptName: string): string {
 	return `set -e;
+echo 'Checking if sshfs is installed...';
 if ! command -v sshfs >/dev/null 2>&1; then
+  echo 'sshfs not found, installing...';
   if command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y fuse-sshfs >/dev/null;
+    echo 'Using dnf to install sshfs...';
+    sudo dnf install -y fuse-sshfs;
   elif command -v apt >/dev/null 2>&1; then
-    sudo apt update >/dev/null && sudo apt install -y sshfs >/dev/null;
+    echo 'Using apt to install sshfs...';
+    sudo apt update && sudo apt install -y sshfs;
+  else
+    echo 'Neither dnf nor apt found. Please install sshfs manually.';
+    exit 1;
   fi;
+else
+  echo 'sshfs already installed.';
 fi;
+echo 'Creating mount point...';
 mkdir -p /mnt/host;
+echo "Making ${devScriptName} executable...";
 chmod +x ~/${devScriptName};
 echo 'Setup complete on VM.'`;
 }
